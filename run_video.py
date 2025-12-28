@@ -48,7 +48,8 @@ if __name__ == '__main__':
     os.makedirs(args.outdir, exist_ok=True)
     
     margin_width = 50
-    cmap = matplotlib.colormaps.get_cmap('Spectral_r')
+    # cmap = matplotlib.colormaps.get_cmap('Spectral_r')
+    cmap = matplotlib.colormaps['Spectral_r']
     
     for k, filename in enumerate(filenames):
         print(f'Progress {k+1}/{len(filenames)}: {filename}')
@@ -74,11 +75,15 @@ if __name__ == '__main__':
             
             depth = (depth - depth.min()) / (depth.max() - depth.min()) * 255.0
             depth = depth.astype(np.uint8)
-            
+            scale_factor = 2.0  # Adjust this based on your room size
+            metric_depth = depth * scale_factor
+
             if args.grayscale:
                 depth = np.repeat(depth[..., np.newaxis], 3, axis=-1)
             else:
                 depth = (cmap(depth)[:, :, :3] * 255)[:, :, ::-1].astype(np.uint8)
+                depth_mm = (metric_depth * 1000).astype(np.uint16)
+                cv2.imwrite(f'depth_frames/frame_{k}.png', depth_mm)
             
             if args.pred_only:
                 out.write(depth)
