@@ -17,3 +17,4 @@ __pycache__/
 *.tmp
 *.swp
 /checkpoints/
+/assets/examples_video/output.mp4
