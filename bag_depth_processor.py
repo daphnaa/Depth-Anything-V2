@@ -1,3 +1,4 @@
+import argparse
 import copy
 from typing import Optional
 
@@ -13,9 +14,11 @@ import numpy as np
 from depth_anything_v2.dpt import DepthAnythingV2
 from pytictoc import TicToc
 
+sphera_topic = "/R1/camera/image_raw"
+gazebo_topic = "/simple_drone/front/image_raw"
 
 class BagDepthNode(Node):
-    def __init__(self, drone_id: str = "R1"):
+    def __init__(self, drone_id: str = "R1", simulator: str = "Sphera"):
         super().__init__('bag_depth_node')
         self.camera_info_template = None
         self.set_parameters([Parameter("use_sim_time", Parameter.Type.BOOL, True)])
@@ -35,13 +38,14 @@ class BagDepthNode(Node):
         )
 
         # 1. Subscriber: Listen to the rosbag image stream
+        image_topic = sphera_topic if simulator == "sphera" else gazebo_topic
         self.img_sub = self.create_subscription(
             Image,
-            f'/{self.drone_id}/camera/image_raw',  # Change this to match your bag's topic
+            image_topic,  # Change this to match your bag's topic
             self.image_callback,
             camera_qos)
 
-        # 2. Publishers: Output depth and info for Nvblox/VSLAM
+        # 2. Publishers: Output depth and info
         self.depth_pub = self.create_publisher(Image, f'/{self.drone_id}/camera/depth', camera_qos)
         self.info_pub = self.create_publisher(CameraInfo, f'/{self.drone_id}/camera/depth/camera_info', camera_qos)
 
@@ -159,8 +163,12 @@ class BagDepthNode(Node):
 
 
 def main(args=None):
-    rclpy.init(args=args)
-    node = BagDepthNode()
+    parser = argparse.ArgumentParser(description="Simulation Environment")
+    parser.add_argument("--sim", "-s", type=str, default="Sphera",
+                        help="Simulator, choose from [Gazebo, Sphera]")
+    args, ros_args = parser.parse_known_args()
+    rclpy.init(args=ros_args)
+    node = BagDepthNode(simulator=args.sim)
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
