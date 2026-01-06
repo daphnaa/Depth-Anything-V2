@@ -18,3 +18,5 @@ __pycache__/
 *.swp
 /checkpoints/
 /assets/examples_video/output.mp4
+
+occ_dump/

@@ -116,6 +116,14 @@ class CloudToGridSimple(Node):
     def in_bounds(self, gx, gy):
         return 0 <= gx < self.width and 0 <= gy < self.height
 
+    def _timer_publish(self):
+        if not self.origin_set:
+            return
+        stamp = self._last_stamp
+        if stamp is None:
+            stamp = self.get_clock().now().to_msg()
+        self.publish(stamp)
+
     def publish(self, stamp):
         msg = OccupancyGrid()
         msg.header.stamp = stamp
@@ -144,6 +152,8 @@ class CloudToGridSimple(Node):
     def cb(self, msg: PointCloud2):
         # TF: map <- cloud_frame
         self.get_logger().info(f"msg is got in cb")
+        self._last_stamp = msg.header.stamp
+
         try:
             tf = self.tf_buffer.lookup_transform(
                 self.map_frame, msg.header.frame_id, msg.header.stamp, timeout=Duration(seconds=0.2)
@@ -176,12 +186,19 @@ class CloudToGridSimple(Node):
         # Read points with stride (and hard cap)
         pts = []
         for i, p in enumerate(pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True)):
-            self.get_logger().info(f"for i, p read points")
             if self.stride > 1 and (i % self.stride) != 0:
                 continue
-            pts.append(p)
+
+            # p might be a tuple OR a structured record depending on ROS2 / numpy version
+            try:
+                x, y, z = float(p[0]), float(p[1]), float(p[2])
+            except Exception:
+                x, y, z = float(p["x"]), float(p["y"]), float(p["z"])
+
+            pts.append((x, y, z))
             if len(pts) >= self.max_points:
                 break
+
         if not pts:
             return
 
@@ -192,7 +209,10 @@ class CloudToGridSimple(Node):
         dx = pts_map[:, 0] - trans[0]
         dy = pts_map[:, 1] - trans[1]
         rng = np.sqrt(dx*dx + dy*dy)
-        self.get_logger().info(f"print in range!")
+        self.get_logger().info(
+            f"rng stats: min={float(rng.min()):.2f} mean={float(rng.mean()):.2f} max={float(rng.max()):.2f}",
+        )
+
         m = (rng >= self.r_min) & (rng <= self.r_max) & (pts_map[:, 2] >= self.z_min) & (pts_map[:, 2] <= self.z_max)
         pts_map = pts_map[m]
         if pts_map.shape[0] == 0:
@@ -200,7 +220,6 @@ class CloudToGridSimple(Node):
 
         # Mark occupied
         for x, y, _z in pts_map:
-            self.get_logger().info("x, y, z = {x}, {y}, {z}".format(x=x, y=y, z=_z))
             gx, gy = self.world_to_grid(x, y)
             if not self.in_bounds(gx, gy):
                 continue

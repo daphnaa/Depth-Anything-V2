@@ -28,6 +28,7 @@ class BagDepthNode(Node):
         self.height = None
         self.width = None
         self.bridge = CvBridge()
+        self.sim = simulator
 
 
         camera_qos = QoSProfile(
@@ -38,7 +39,7 @@ class BagDepthNode(Node):
         )
 
         # 1. Subscriber: Listen to the rosbag image stream
-        image_topic = sphera_topic if simulator == "sphera" else gazebo_topic
+        image_topic = sphera_topic if self.sim == "sphera" else gazebo_topic
         self.img_sub = self.create_subscription(
             Image,
             image_topic,  # Change this to match your bag's topic
@@ -57,7 +58,7 @@ class BagDepthNode(Node):
 
         self.get_logger().info('Bag Depth Node Started. Waiting for images...')
 
-    def intrinsic_from_fov(self,  hfov_deg=130, vfov_deg=90, half_pixel=True):
+    def intrinsic_from_fov(self, hfov_deg: float, vfov_deg: float, half_pixel: bool):
         theta_x = np.deg2rad(hfov_deg)
         theta_y = np.deg2rad(vfov_deg)
 
@@ -68,14 +69,22 @@ class BagDepthNode(Node):
             cx = (self.width - 1) / 2.0
             cy = (self.height - 1) / 2.0
         else:
-            cx = self.width / 2.0
-            cy = self.height / 2.0
+            cx = self.width / 2.0 + 0.5
+            cy = self.height / 2.0 + 0.5
 
         K = [fx, 0.0, cx,
              0.0, fy, cy,
              0.0, 0.0, 1.0]
 
         return K
+
+    def clean_frame(self, s: Optional[str]) -> Optional[str]:
+        if s is None:
+            return s
+        # remove ALL leading slashes
+        while s.startswith('/'):
+            s = s[1:]
+        return s
 
     def get_camera_info(self, frame_id: str = "camera", stamp: Optional[Time] = None,
                         distortion_model: str = "plumb_bob",
@@ -92,7 +101,14 @@ class BagDepthNode(Node):
         return msg
 
     def create_camera_info_template(self, stamp, frame_id, distortion_model):
-        K = self.intrinsic_from_fov()
+        # Sphera: hfov_deg=130, vfov_deg=90, half_pixel=True
+        # Gazebo: hfov_deg=119.75, vfov_deg=88.2, half_pixel=False
+        if self.sim=='Sphera':
+            K = self.intrinsic_from_fov(hfov_deg=130, vfov_deg=90, half_pixel=True)
+        elif self.sim=='Gazebo':
+            K = self.intrinsic_from_fov(hfov_deg=119.75, vfov_deg=88.2, half_pixel=False)
+        else:
+            K = self.intrinsic_from_fov(hfov_deg=130, vfov_deg=90, half_pixel=True)
         K_list = list(K)
         if len(K_list) == 3 and hasattr(K_list[0], "__iter__"):
             K_list = [float(v) for row in K_list for v in row]
@@ -153,7 +169,7 @@ class BagDepthNode(Node):
 
         depth_msg.header = msg.header
         depth_msg.header.stamp = stamp_now
-        depth_msg.header.frame_id = "main_camera_link"
+        depth_msg.header.frame_id = self.clean_frame(msg.header.frame_id)
         self.depth_pub.publish(depth_msg)
         self.t.toc()
         self.width = cv_image.shape[1]
